@@ -1,4 +1,4 @@
-// server.js - v2.2 (Corrected ESM import for p-limit)
+// server.js - v2.4 (Added Proxy Support for Downloads)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -9,7 +9,14 @@ const { URL } = require('url');
 const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
-// We will import p-limit dynamically below
+
+// --- 1. ADD YOUR PROXIES HERE ---
+// Format: 'username:password@host:port' or 'host:port'
+const proxies = [
+    'user1:pass1@proxy.example.com:8080',
+    'user2:pass2@proxy.example.com:8081',
+    // Add as many proxies as you have
+];
 
 // --- Basic Setup ---
 const app = express();
@@ -27,7 +34,35 @@ if (!fs.existsSync(downloadFolder)) {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- Helper Functions (Unchanged) ---
+
+// --- Helper Functions ---
+
+/**
+ * Parses a proxy string into an object axios can use.
+ * @param {string} proxyString - The proxy string (e.g., 'user:pass@host:port').
+ * @returns {object} An axios-compatible proxy object.
+ */
+function parseProxy(proxyString) {
+    if (!proxyString) return null;
+    const parts = proxyString.split('@');
+    const credentials = parts.length > 1 ? parts[0].split(':') : null;
+    const server = (parts.length > 1 ? parts[1] : parts[0]).split(':');
+
+    const proxyConfig = {
+        protocol: 'http', // Change to 'https' if your proxy requires it
+        host: server[0],
+        port: parseInt(server[1], 10),
+    };
+
+    if (credentials) {
+        proxyConfig.auth = {
+            username: credentials[0],
+            password: credentials[1],
+        };
+    }
+    return proxyConfig;
+}
+
 
 function extractFileName(imagePageUrl, downloadUrl) {
     try {
@@ -69,18 +104,33 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
     let filePath = path.join(downloadFolder, fileName);
     filePath = getUniqueFileName(filePath);
 
-    socket.emit('status', { message: `📥 Downloading: ${path.basename(filePath)}...`, type: 'info', url: originalUrl });
+    // --- 2. RANDOMLY SELECT A PROXY ---
+    const randomProxyString = proxies[Math.floor(Math.random() * proxies.length)];
+    const proxy = parseProxy(randomProxyString);
+    
+    const proxyMessage = proxy ? `via ${proxy.host}` : 'directly';
+    socket.emit('status', { message: `📥 Downloading ${path.basename(filePath)} ${proxyMessage}...`, type: 'info', url: originalUrl });
 
     try {
-        const response = await axios({ method: 'GET', url: downloadUrl, responseType: 'stream' });
+        // --- 3. CONFIGURE AXIOS TO USE THE PROXY ---
+        const axiosConfig = {
+            method: 'GET',
+            url: downloadUrl,
+            responseType: 'stream',
+            proxy: proxy, // Use the selected proxy
+        };
+
+        const response = await axios(axiosConfig);
         const totalLength = response.headers['content-length'];
         let downloadedLength = 0;
 
         const writer = fs.createWriteStream(filePath);
         response.data.on('data', (chunk) => {
             downloadedLength += chunk.length;
-            const progress = Math.round((downloadedLength / totalLength) * 100);
-            socket.emit('download_progress', { url: originalUrl, progress });
+            if (totalLength) {
+                const progress = Math.round((downloadedLength / totalLength) * 100);
+                socket.emit('download_progress', { url: originalUrl, progress });
+            }
         });
 
         response.data.pipe(writer);
@@ -96,7 +146,8 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
             });
         });
     } catch (e) {
-        socket.emit('status', { message: `❌ Error downloading image: ${e.message}`, type: 'error' });
+        const errorMessage = `❌ Error downloading image: ${e.message}. ` + (proxy ? `(Proxy: ${proxy.host})` : '');
+        socket.emit('status', { message: errorMessage, type: 'error' });
     }
 }
 
@@ -124,6 +175,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
         if (downloadLink) {
             socket.emit('status', { message: `✅ Found link: ${downloadLink}`, type: 'info' });
             saveUrlWithTime(downloadLink, socket);
+            // downloadImage will now handle the proxy logic internally
             await downloadImage(downloadLink, imageUrl, socket);
         } else {
             socket.emit('status', { message: '❌ No download link found!', type: 'error' });
@@ -152,7 +204,12 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            const limit = pLimit(2);
+            if (proxies.length === 0) {
+                socket.emit('status', { message: '⚠️ Warning: No proxies configured. Downloads may fail.', type: 'error' });
+            }
+
+            const limit = pLimit(2); 
+
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
                 if (trimmedUrl.startsWith('https://ibb.co/')) {
