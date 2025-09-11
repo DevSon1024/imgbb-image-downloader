@@ -1,4 +1,4 @@
-require('dotenv').config();
+// server.js - v2.3 (Reduced Concurrency Limit)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -9,9 +9,7 @@ const { URL } = require('url');
 const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
-
-// --- Proxies are now loaded from the .env file ---
-const proxies = process.env.PROXIES ? process.env.PROXIES.split(',') : [];
+// We will import p-limit dynamically below
 
 // --- Basic Setup ---
 const app = express();
@@ -29,30 +27,7 @@ if (!fs.existsSync(downloadFolder)) {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-
-// --- Helper Functions ---
-
-function parseProxy(proxyString) {
-    if (!proxyString) return null;
-    const parts = proxyString.split('@');
-    const credentials = parts.length > 1 ? parts[0].split(':') : null;
-    const server = (parts.length > 1 ? parts[1] : parts[0]).split(':');
-
-    const proxyConfig = {
-        protocol: 'http', 
-        host: server[0],
-        port: parseInt(server[1], 10),
-    };
-
-    if (credentials) {
-        proxyConfig.auth = {
-            username: credentials[0],
-            password: credentials[1],
-        };
-    }
-    return proxyConfig;
-}
-
+// --- Helper Functions (Unchanged) ---
 
 function extractFileName(imagePageUrl, downloadUrl) {
     try {
@@ -93,32 +68,19 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
     const fileName = extractFileName(originalUrl, downloadUrl);
     let filePath = path.join(downloadFolder, fileName);
     filePath = getUniqueFileName(filePath);
-    
-    const randomProxyString = proxies.length > 0 ? proxies[Math.floor(Math.random() * proxies.length)] : null;
-    const proxy = parseProxy(randomProxyString);
-    
-    const proxyMessage = proxy ? `via ${proxy.host}` : 'directly';
-    socket.emit('status', { message: `📥 Downloading ${path.basename(filePath)} ${proxyMessage}...`, type: 'info', url: originalUrl });
+
+    socket.emit('status', { message: `📥 Downloading: ${path.basename(filePath)}...`, type: 'info', url: originalUrl });
 
     try {
-        const axiosConfig = {
-            method: 'GET',
-            url: downloadUrl,
-            responseType: 'stream',
-            proxy: proxy,
-        };
-
-        const response = await axios(axiosConfig);
+        const response = await axios({ method: 'GET', url: downloadUrl, responseType: 'stream' });
         const totalLength = response.headers['content-length'];
         let downloadedLength = 0;
 
         const writer = fs.createWriteStream(filePath);
         response.data.on('data', (chunk) => {
             downloadedLength += chunk.length;
-            if (totalLength) {
-                const progress = Math.round((downloadedLength / totalLength) * 100);
-                socket.emit('download_progress', { url: originalUrl, progress });
-            }
+            const progress = Math.round((downloadedLength / totalLength) * 100);
+            socket.emit('download_progress', { url: originalUrl, progress });
         });
 
         response.data.pipe(writer);
@@ -134,8 +96,7 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
             });
         });
     } catch (e) {
-        const errorMessage = `❌ Error downloading image: ${e.message}. ` + (proxy ? `(Proxy: ${proxy.host})` : '');
-        socket.emit('status', { message: errorMessage, type: 'error' });
+        socket.emit('status', { message: `❌ Error downloading image: ${e.message}`, type: 'error' });
     }
 }
 
@@ -178,6 +139,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
 
 // --- WebSocket and Server Logic ---
 (async () => {
+    // Dynamically import p-limit
     const pLimit = (await import('p-limit')).default;
 
     const browser = await puppeteer.launch({ headless: true });
@@ -190,10 +152,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            if (proxies.length === 0) {
-                socket.emit('status', { message: '⚠️ Warning: No proxies configured. Running without proxies.', type: 'error' });
-            }
-
+            // **FIX**: Reduced concurrency from 5 to 2 to prevent network errors
             const limit = pLimit(2); 
 
             const tasks = urls.map(url => {
