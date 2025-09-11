@@ -7,19 +7,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let isProcessing = false;
 
-    // --- Helper function to add logs ---
     function addLog(message, type = 'info', url = null) {
         const entry = document.createElement('div');
         entry.textContent = message;
         entry.classList.add('log-entry', type);
         if (url) {
-            entry.dataset.url = url; // Store URL for progress updates
+            entry.dataset.url = url;
         }
         progressLog.appendChild(entry);
-        progressLog.scrollTop = progressLog.scrollHeight; // Auto-scroll
+        progressLog.scrollTop = progressLog.scrollHeight;
     }
 
-    // --- Handle Button Click ---
     downloadBtn.addEventListener('click', () => {
         if (isProcessing) return;
 
@@ -32,34 +30,29 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessing = true;
         downloadBtn.disabled = true;
         downloadBtn.textContent = 'Processing...';
-        progressLog.innerHTML = ''; // Clear previous logs
+        progressLog.innerHTML = '';
 
-        fetch('/download', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls }),
-        });
+        // Use socket to start download
+        socket.emit('start-download', { urls });
     });
 
-    // --- Socket.IO Event Listeners ---
     socket.on('status', (data) => {
         const { message, type, url } = data;
-        
-        // Add progress bar container right after navigation message
+
         if (message.startsWith('🚀 Navigating')) {
-             addLog(message, type, url);
-             const progressContainer = document.createElement('div');
-             progressContainer.classList.add('progress-bar-container');
-             progressContainer.dataset.url = url;
-             
-             const progressBar = document.createElement('div');
-             progressBar.classList.add('progress-bar');
-             progressBar.textContent = '0%';
-             
-             progressContainer.appendChild(progressBar);
-             progressLog.appendChild(progressContainer);
+            addLog(message, type, url);
+            const progressContainer = document.createElement('div');
+            progressContainer.classList.add('progress-bar-container');
+            progressContainer.dataset.url = url;
+
+            const progressBar = document.createElement('div');
+            progressBar.classList.add('progress-bar');
+            progressBar.textContent = '0%';
+
+            progressContainer.appendChild(progressBar);
+            progressLog.appendChild(progressContainer);
         } else {
-             addLog(message, type);
+            addLog(message, type);
         }
 
         if (type === 'final') {
@@ -68,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
             downloadBtn.textContent = 'Start Download';
         }
     });
-    
+
     socket.on('download_progress', (data) => {
         const { url, progress } = data;
         const progressBarContainer = document.querySelector(`.progress-bar-container[data-url="${url}"]`);
@@ -78,5 +71,4 @@ document.addEventListener('DOMContentLoaded', () => {
             bar.textContent = `${progress}%`;
         }
     });
-
 });
