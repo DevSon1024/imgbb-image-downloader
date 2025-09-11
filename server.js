@@ -1,4 +1,4 @@
-// server.js - v2.4 (Added Proxy Support for Downloads)
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -10,13 +10,8 @@ const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
 
-// --- 1. ADD YOUR PROXIES HERE ---
-// Format: 'username:password@host:port' or 'host:port'
-const proxies = [
-    'user1:pass1@proxy.example.com:8080',
-    'user2:pass2@proxy.example.com:8081',
-    // Add as many proxies as you have
-];
+// --- Proxies are now loaded from the .env file ---
+const proxies = process.env.PROXIES ? process.env.PROXIES.split(',') : [];
 
 // --- Basic Setup ---
 const app = express();
@@ -37,11 +32,6 @@ app.use(express.json());
 
 // --- Helper Functions ---
 
-/**
- * Parses a proxy string into an object axios can use.
- * @param {string} proxyString - The proxy string (e.g., 'user:pass@host:port').
- * @returns {object} An axios-compatible proxy object.
- */
 function parseProxy(proxyString) {
     if (!proxyString) return null;
     const parts = proxyString.split('@');
@@ -49,7 +39,7 @@ function parseProxy(proxyString) {
     const server = (parts.length > 1 ? parts[1] : parts[0]).split(':');
 
     const proxyConfig = {
-        protocol: 'http', // Change to 'https' if your proxy requires it
+        protocol: 'http', 
         host: server[0],
         port: parseInt(server[1], 10),
     };
@@ -103,21 +93,19 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
     const fileName = extractFileName(originalUrl, downloadUrl);
     let filePath = path.join(downloadFolder, fileName);
     filePath = getUniqueFileName(filePath);
-
-    // --- 2. RANDOMLY SELECT A PROXY ---
-    const randomProxyString = proxies[Math.floor(Math.random() * proxies.length)];
+    
+    const randomProxyString = proxies.length > 0 ? proxies[Math.floor(Math.random() * proxies.length)] : null;
     const proxy = parseProxy(randomProxyString);
     
     const proxyMessage = proxy ? `via ${proxy.host}` : 'directly';
     socket.emit('status', { message: `📥 Downloading ${path.basename(filePath)} ${proxyMessage}...`, type: 'info', url: originalUrl });
 
     try {
-        // --- 3. CONFIGURE AXIOS TO USE THE PROXY ---
         const axiosConfig = {
             method: 'GET',
             url: downloadUrl,
             responseType: 'stream',
-            proxy: proxy, // Use the selected proxy
+            proxy: proxy,
         };
 
         const response = await axios(axiosConfig);
@@ -175,7 +163,6 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
         if (downloadLink) {
             socket.emit('status', { message: `✅ Found link: ${downloadLink}`, type: 'info' });
             saveUrlWithTime(downloadLink, socket);
-            // downloadImage will now handle the proxy logic internally
             await downloadImage(downloadLink, imageUrl, socket);
         } else {
             socket.emit('status', { message: '❌ No download link found!', type: 'error' });
@@ -191,7 +178,6 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
 
 // --- WebSocket and Server Logic ---
 (async () => {
-    // Dynamically import p-limit
     const pLimit = (await import('p-limit')).default;
 
     const browser = await puppeteer.launch({ headless: true });
@@ -205,7 +191,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
             }
 
             if (proxies.length === 0) {
-                socket.emit('status', { message: '⚠️ Warning: No proxies configured. Downloads may fail.', type: 'error' });
+                socket.emit('status', { message: '⚠️ Warning: No proxies configured. Running without proxies.', type: 'error' });
             }
 
             const limit = pLimit(2); 
