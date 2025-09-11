@@ -152,7 +152,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            const limit = pLimit(5);
+            const limit = pLimit(2);
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
                 if (trimmedUrl.startsWith('https://ibb.co/')) {
