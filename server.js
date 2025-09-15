@@ -18,7 +18,7 @@ const io = new Server(server);
 
 const PORT = 3000;
 const downloadFolder = path.join(__dirname, 'Downloads');
-const urlLogFile = path.join(__dirname, 'downloaded_urls.txt');
+const urlLogFile = path.join(__dirname, '/Downloads/downloaded_urls.txt');
 
 if (!fs.existsSync(downloadFolder)) {
     fs.mkdirSync(downloadFolder);
@@ -153,7 +153,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
             }
 
             // **FIX**: Reduced concurrency from 5 to 2 to prevent network errors
-            const limit = pLimit(2); 
+            const limit = pLimit(5); 
 
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
