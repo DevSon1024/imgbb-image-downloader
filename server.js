@@ -1,15 +1,14 @@
-// server.js - v2.3 (Reduced Concurrency Limit)
+// server.js - v3.0 (High-Speed Scraper)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 const { URL } = require('url');
 const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
-// We will import p-limit dynamically below
+const cheerio = require('cheerio'); // Added cheerio for HTML parsing
 
 // --- Basic Setup ---
 const app = express();
@@ -100,49 +99,42 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
     }
 }
 
-async function scrapeAndDownload(imageUrl, browser, socket) {
-    socket.emit('status', { message: `🚀 Navigating to: ${imageUrl}`, url: imageUrl, type: 'info' });
+// --- High-Speed Scrape and Download Function ---
+async function scrapeAndDownload(imageUrl, socket) {
+    socket.emit('status', { message: `🚀 Fetching HTML for: ${imageUrl}`, url: imageUrl, type: 'info' });
 
-    let page = null;
     try {
-        page = await browser.newPage();
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['stylesheet', 'font', 'image'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
+        // Use axios to get the HTML content of the page
+        const { data: html } = await axios.get(imageUrl, {
+            headers: {
+                // Mimic a browser visit to avoid being blocked
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
 
-        await page.goto(imageUrl, { waitUntil: 'domcontentloaded' });
+        // Load the HTML into cheerio to parse it like jQuery
+        const $ = cheerio.load(html);
 
-        const downloadSelector = 'a.btn.btn-download.default';
-        await page.waitForSelector(downloadSelector, { timeout: 15000 });
-        const downloadLink = await page.$eval(downloadSelector, (el) => el.href);
+        // Find the download link
+        const downloadLink = $('a.btn.btn-download.default').attr('href');
 
         if (downloadLink) {
             socket.emit('status', { message: `✅ Found link: ${downloadLink}`, type: 'info' });
             saveUrlWithTime(downloadLink, socket);
             await downloadImage(downloadLink, imageUrl, socket);
         } else {
-            socket.emit('status', { message: '❌ No download link found!', type: 'error' });
+            socket.emit('status', { message: `❌ No download link found for ${imageUrl}!`, type: 'error' });
         }
     } catch (e) {
         socket.emit('status', { message: `❌ Error scraping ${imageUrl}: ${e.message}`, type: 'error' });
-    } finally {
-        if (page) {
-            await page.close();
-        }
     }
 }
+
 
 // --- WebSocket and Server Logic ---
 (async () => {
     // Dynamically import p-limit
     const pLimit = (await import('p-limit')).default;
-
-    const browser = await puppeteer.launch({ headless: true });
 
     io.on('connection', (socket) => {
         console.log(chalk.blue('A user connected via WebSocket'));
@@ -152,13 +144,14 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            // **FIX**: Reduced concurrency from 5 to 2 to prevent network errors
-            const limit = pLimit(5); 
+            // Increased concurrency for faster downloads
+            const limit = pLimit(10); 
 
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
                 if (trimmedUrl.startsWith('https://ibb.co/')) {
-                    return limit(() => scrapeAndDownload(trimmedUrl, browser, socket));
+                    // We no longer need to pass the browser instance
+                    return limit(() => scrapeAndDownload(trimmedUrl, socket));
                 } else {
                     socket.emit('status', { message: `❌ Invalid URL skipped: ${trimmedUrl}`, type: 'error' });
                     return Promise.resolve();
@@ -176,10 +169,7 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
 
     server.listen(PORT, () => {
         console.log(chalk.yellow(`Server running at http://localhost:${PORT}`));
-    });
-
-    process.on('SIGINT', async () => {
-        await browser.close();
-        process.exit();
+        const text = figlet.textSync('ImgBB Downloader', { horizontalLayout: 'full' });
+        console.log(chalk.green(text));
     });
 })();
