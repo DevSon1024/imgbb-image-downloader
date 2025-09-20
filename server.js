@@ -1,15 +1,14 @@
-// server.js - v2.3 (Reduced Concurrency Limit)
+// server.js - v3.0 (High-Speed Scraper)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 const { URL } = require('url');
 const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
-// We will import p-limit dynamically below
+const cheerio = require('cheerio'); // Added cheerio for HTML parsing
 
 // --- Basic Setup ---
 const app = express();
@@ -27,7 +26,10 @@ if (!fs.existsSync(downloadFolder)) {
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// --- Helper Functions (Unchanged) ---
+// In-memory store for active downloads
+const activeDownloads = new Map();
+
+// --- Helper Functions ---
 
 function extractFileName(imagePageUrl, downloadUrl) {
     try {
@@ -77,6 +79,8 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
         let downloadedLength = 0;
 
         const writer = fs.createWriteStream(filePath);
+        activeDownloads.set(originalUrl, { writer, response });
+
         response.data.on('data', (chunk) => {
             downloadedLength += chunk.length;
             const progress = Math.round((downloadedLength / totalLength) * 100);
@@ -87,62 +91,51 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
 
         return new Promise((resolve, reject) => {
             writer.on('finish', () => {
-                socket.emit('status', { message: `✅ Image saved: ${filePath}`, type: 'success' });
+                socket.emit('status', { message: `✅ Image saved: ${filePath}`, type: 'success', url: originalUrl });
+                activeDownloads.delete(originalUrl);
                 resolve();
             });
             writer.on('error', (err) => {
-                socket.emit('status', { message: `❌ Download failed: ${err.message}`, type: 'error' });
+                socket.emit('status', { message: `❌ Download failed: ${err.message}`, type: 'error', url: originalUrl });
+                activeDownloads.delete(originalUrl);
                 reject(err);
             });
         });
     } catch (e) {
-        socket.emit('status', { message: `❌ Error downloading image: ${e.message}`, type: 'error' });
+        socket.emit('status', { message: `❌ Error downloading image: ${e.message}`, type: 'error', url: originalUrl });
+        activeDownloads.delete(originalUrl);
     }
 }
 
-async function scrapeAndDownload(imageUrl, browser, socket) {
-    socket.emit('status', { message: `🚀 Navigating to: ${imageUrl}`, url: imageUrl, type: 'info' });
+// --- High-Speed Scrape and Download Function ---
+async function scrapeAndDownload(imageUrl, socket) {
+    socket.emit('status', { message: `🚀 Fetching HTML for: ${imageUrl}`, url: imageUrl, type: 'info' });
 
-    let page = null;
     try {
-        page = await browser.newPage();
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['stylesheet', 'font', 'image'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
+        const { data: html } = await axios.get(imageUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
 
-        await page.goto(imageUrl, { waitUntil: 'domcontentloaded' });
-
-        const downloadSelector = 'a.btn.btn-download.default';
-        await page.waitForSelector(downloadSelector, { timeout: 15000 });
-        const downloadLink = await page.$eval(downloadSelector, (el) => el.href);
+        const $ = cheerio.load(html);
+        const downloadLink = $('a.btn.btn-download.default').attr('href');
 
         if (downloadLink) {
-            socket.emit('status', { message: `✅ Found link: ${downloadLink}`, type: 'info' });
+            socket.emit('status', { message: `✅ Found link: ${downloadLink}`, type: 'info', url: imageUrl });
             saveUrlWithTime(downloadLink, socket);
             await downloadImage(downloadLink, imageUrl, socket);
         } else {
-            socket.emit('status', { message: '❌ No download link found!', type: 'error' });
+            socket.emit('status', { message: `❌ No download link found for ${imageUrl}!`, type: 'error', url: imageUrl });
         }
     } catch (e) {
-        socket.emit('status', { message: `❌ Error scraping ${imageUrl}: ${e.message}`, type: 'error' });
-    } finally {
-        if (page) {
-            await page.close();
-        }
+        socket.emit('status', { message: `❌ Error scraping ${imageUrl}: ${e.message}`, type: 'error', url: imageUrl });
     }
 }
 
 // --- WebSocket and Server Logic ---
 (async () => {
-    // Dynamically import p-limit
     const pLimit = (await import('p-limit')).default;
-
-    const browser = await puppeteer.launch({ headless: true });
 
     io.on('connection', (socket) => {
         console.log(chalk.blue('A user connected via WebSocket'));
@@ -152,13 +145,12 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            // **FIX**: Reduced concurrency from 5 to 2 to prevent network errors
-            const limit = pLimit(5); 
+            const limit = pLimit(20);
 
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
                 if (trimmedUrl.startsWith('https://ibb.co/')) {
-                    return limit(() => scrapeAndDownload(trimmedUrl, browser, socket));
+                    return limit(() => scrapeAndDownload(trimmedUrl, socket));
                 } else {
                     socket.emit('status', { message: `❌ Invalid URL skipped: ${trimmedUrl}`, type: 'error' });
                     return Promise.resolve();
@@ -169,17 +161,48 @@ async function scrapeAndDownload(imageUrl, browser, socket) {
             socket.emit('status', { message: '🎉 All tasks complete!', type: 'final' });
         });
 
+        socket.on('pause-download', ({ url }) => {
+            const download = activeDownloads.get(url);
+            if (download && download.response.data.isPaused()) {
+                download.response.data.resume();
+                socket.emit('status', { message: '▶️ Resumed', type: 'info', url });
+            } else if (download) {
+                download.response.data.pause();
+                socket.emit('status', { message: '⏸️ Paused', type: 'info', url });
+            }
+        });
+
+        socket.on('cancel-download', ({ url }) => {
+            const download = activeDownloads.get(url);
+            if (download) {
+                download.response.data.destroy();
+                activeDownloads.delete(url);
+                socket.emit('status', { message: '❌ Canceled', type: 'error', url });
+            }
+        });
+
+        socket.on('restart-download', async ({ url }) => {
+            console.log(chalk.cyan(`Restarting download for: ${url}`));
+            await scrapeAndDownload(url, socket);
+        });
+
         socket.on('disconnect', () => {
             console.log(chalk.yellow('User disconnected'));
         });
     });
 
-    server.listen(PORT, () => {
-        console.log(chalk.yellow(`Server running at http://localhost:${PORT}`));
+    app.get('/history', (req, res) => {
+        if (fs.existsSync(urlLogFile)) {
+            const history = fs.readFileSync(urlLogFile, 'utf-8').split('\n').filter(Boolean);
+            res.json({ history });
+        } else {
+            res.json({ history: [] });
+        }
     });
 
-    process.on('SIGINT', async () => {
-        await browser.close();
-        process.exit();
+    server.listen(PORT, () => {
+        console.log(chalk.yellow(`Server running at http://localhost:${PORT}`));
+        const text = figlet.textSync('ImgBB Downloader', { horizontalLayout: 'full' });
+        console.log(chalk.green(text));
     });
 })();

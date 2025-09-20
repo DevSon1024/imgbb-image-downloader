@@ -13,10 +13,30 @@ body {
     max-width: 800px;
 }
 
-h1, h2 {
-    color: #bb86fc;
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     border-bottom: 2px solid #373737;
     padding-bottom: 10px;
+}
+
+h1, h2 {
+    color: #bb86fc;
+}
+
+.history-btn {
+    background-color: #bb86fc;
+    color: #121212;
+    padding: 8px 16px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-weight: bold;
+    transition: background-color 0.3s;
+}
+
+.history-btn:hover {
+    background-color: #d1b3ff;
 }
 
 textarea {
@@ -76,6 +96,12 @@ button:hover:not(:disabled) {
 .log-entry.info { color: #e0e0e0; }
 .log-entry.final { color: #bb86fc; font-weight: bold; margin-top: 10px; }
 
+.download-entry {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #373737;
+}
+
 .progress-bar-container {
     width: 100%;
     background-color: #373737;
@@ -93,4 +119,28 @@ button:hover:not(:disabled) {
     color: #121212;
     font-weight: bold;
     transition: width 0.2s ease-in-out;
+}
+
+.download-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 5px;
+}
+
+.pause-btn, .cancel-btn, .restart-btn {
+    width: auto;
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.pause-btn {
+    background-color: #f39c12;
+}
+
+.cancel-btn {
+    background-color: #e74c3c;
+}
+
+.restart-btn {
+    background-color: #3498db;
 }
