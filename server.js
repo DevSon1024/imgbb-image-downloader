@@ -112,13 +112,27 @@ async function scrapeAndDownload(imageUrl, socket) {
     socket.emit('status', { message: `🚀 Fetching HTML for: ${imageUrl}`, url: imageUrl, type: 'info' });
 
     try {
+<<<<<<< HEAD
         const { data: html } = await axios.get(imageUrl, {
             headers: {
+=======
+        // Use axios to get the HTML content of the page
+        const { data: html } = await axios.get(imageUrl, {
+            headers: {
+                // Mimic a browser visit to avoid being blocked
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
         });
 
+<<<<<<< HEAD
         const $ = cheerio.load(html);
+=======
+        // Load the HTML into cheerio to parse it like jQuery
+        const $ = cheerio.load(html);
+
+        // Find the download link
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
         const downloadLink = $('a.btn.btn-download.default').attr('href');
 
         if (downloadLink) {
@@ -126,12 +140,20 @@ async function scrapeAndDownload(imageUrl, socket) {
             saveUrlWithTime(downloadLink, socket);
             await downloadImage(downloadLink, imageUrl, socket);
         } else {
+<<<<<<< HEAD
             socket.emit('status', { message: `❌ No download link found for ${imageUrl}!`, type: 'error', url: imageUrl });
         }
     } catch (e) {
         socket.emit('status', { message: `❌ Error scraping ${imageUrl}: ${e.message}`, type: 'error', url: imageUrl });
+=======
+            socket.emit('status', { message: `❌ No download link found for ${imageUrl}!`, type: 'error' });
+        }
+    } catch (e) {
+        socket.emit('status', { message: `❌ Error scraping ${imageUrl}: ${e.message}`, type: 'error' });
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
     }
 }
+
 
 // --- WebSocket and Server Logic ---
 (async () => {
@@ -145,11 +167,20 @@ async function scrapeAndDownload(imageUrl, socket) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
+<<<<<<< HEAD
             const limit = pLimit(20);
+=======
+            // Increased concurrency for faster downloads
+            const limit = pLimit(10); 
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
 
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();
                 if (trimmedUrl.startsWith('https://ibb.co/')) {
+<<<<<<< HEAD
+=======
+                    // We no longer need to pass the browser instance
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
                     return limit(() => scrapeAndDownload(trimmedUrl, socket));
                 } else {
                     socket.emit('status', { message: `❌ Invalid URL skipped: ${trimmedUrl}`, type: 'error' });
@@ -191,6 +222,7 @@ async function scrapeAndDownload(imageUrl, socket) {
         });
     });
 
+<<<<<<< HEAD
     app.get('/history', (req, res) => {
         if (fs.existsSync(urlLogFile)) {
             const history = fs.readFileSync(urlLogFile, 'utf-8').split('\n').filter(Boolean);
@@ -200,6 +232,8 @@ async function scrapeAndDownload(imageUrl, socket) {
         }
     });
 
+=======
+>>>>>>> 63902e04292cd2a04cb508056fb6a0d13ba562ba
     server.listen(PORT, () => {
         console.log(chalk.yellow(`Server running at http://localhost:${PORT}`));
         const text = figlet.textSync('ImgBB Downloader', { horizontalLayout: 'full' });
