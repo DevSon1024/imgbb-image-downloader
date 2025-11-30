@@ -1,4 +1,4 @@
-// server.js - v3.0 (High-Speed Scraper)
+// server.js - v4.1 (Notifications & Mobile Optimizations)
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -8,7 +8,7 @@ const { URL } = require('url');
 const axios = require('axios');
 const figlet = require('figlet');
 const chalk = require('chalk');
-const cheerio = require('cheerio'); // Added cheerio for HTML parsing
+const cheerio = require('cheerio');
 
 // --- Basic Setup ---
 const app = express();
@@ -30,7 +30,6 @@ app.use(express.json());
 const activeDownloads = new Map();
 
 // --- Helper Functions ---
-
 function extractFileName(imagePageUrl, downloadUrl) {
     try {
         const pageUrl = new URL(imagePageUrl);
@@ -70,8 +69,9 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
     const fileName = extractFileName(originalUrl, downloadUrl);
     let filePath = path.join(downloadFolder, fileName);
     filePath = getUniqueFileName(filePath);
+    const finalFileName = path.basename(filePath); // Capture final name
 
-    socket.emit('status', { message: `📥 Downloading: ${path.basename(filePath)}...`, type: 'info', url: originalUrl });
+    socket.emit('status', { message: `📥 Downloading: ${finalFileName}...`, type: 'info', url: originalUrl });
 
     try {
         const response = await axios({ method: 'GET', url: downloadUrl, responseType: 'stream' });
@@ -83,15 +83,23 @@ async function downloadImage(downloadUrl, originalUrl, socket) {
 
         response.data.on('data', (chunk) => {
             downloadedLength += chunk.length;
-            const progress = Math.round((downloadedLength / totalLength) * 100);
-            socket.emit('download_progress', { url: originalUrl, progress });
+            if (totalLength) {
+                const progress = Math.round((downloadedLength / totalLength) * 100);
+                socket.emit('download_progress', { url: originalUrl, progress });
+            }
         });
 
         response.data.pipe(writer);
 
         return new Promise((resolve, reject) => {
             writer.on('finish', () => {
-                socket.emit('status', { message: `✅ Image saved: ${filePath}`, type: 'success', url: originalUrl });
+                // Sent fileName explicitly for the notification
+                socket.emit('status', { 
+                    message: `✅ Image saved: ${filePath}`, 
+                    type: 'success', 
+                    url: originalUrl,
+                    fileName: finalFileName 
+                });
                 activeDownloads.delete(originalUrl);
                 resolve();
             });
@@ -140,12 +148,15 @@ async function scrapeAndDownload(imageUrl, socket) {
     io.on('connection', (socket) => {
         console.log(chalk.blue('A user connected via WebSocket'));
 
-        socket.on('start-download', async ({ urls }) => {
+        socket.on('start-download', async ({ urls, concurrency }) => {
             if (!urls || !Array.isArray(urls) || urls.length === 0) {
                 return socket.emit('status', { message: 'No URLs provided.', type: 'error' });
             }
 
-            const limit = pLimit(20);
+            const limitVal = parseInt(concurrency) || 5; 
+            const limit = pLimit(limitVal);
+            
+            socket.emit('status', { message: `⚙️ Starting with concurrency limit: ${limitVal}`, type: 'info' });
 
             const tasks = urls.map(url => {
                 const trimmedUrl = url.trim();

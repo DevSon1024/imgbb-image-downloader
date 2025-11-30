@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - ImgBB Downloader</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Settings</h1>
+            <div class="nav-links">
+                <a href="/" class="nav-btn">Downloader</a>
+                <a href="/history.html" class="nav-btn">History</a>
+                <a href="/settings.html" class="nav-btn active">Settings</a>
+            </div>
+        </div>
+
+        <div class="settings-group">
+            <h3>Download Configuration</h3>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
+                Control how many images are downloaded simultaneously. 
+                Lower values (4-5) reduce server load and errors.
+            </p>
+            <label for="concurrencyInput">Concurrent Downloads (Images per thread/queue)</label>
+            <input type="number" id="concurrencyInput" min="1" max="20" value="5">
+        </div>
+
+        <div class="settings-group">
+            <h3>Appearance</h3>
+            <label for="themeSelect">Theme Mode</label>
+            <select id="themeSelect">
+                <option value="dark">Dark Mode</option>
+                <option value="light">Light Mode</option>
+            </select>
+        </div>
+
+        <button id="saveBtn" class="primary-btn">Save Settings</button>
+        <p id="saveMsg" style="text-align: center; margin-top: 10px; opacity: 0; transition: opacity 0.5s; color: var(--success-color);">Settings Saved!</p>
+    </div>
+
+    <script src="script.js"></script> <script>
+        // Specific logic for Settings page
+        document.addEventListener('DOMContentLoaded', () => {
+            const concurrencyInput = document.getElementById('concurrencyInput');
+            const themeSelect = document.getElementById('themeSelect');
+            const saveBtn = document.getElementById('saveBtn');
+            const saveMsg = document.getElementById('saveMsg');
+
+            // Load saved values
+            const savedConcurrency = localStorage.getItem('imgbb_concurrency') || 5;
+            const savedTheme = localStorage.getItem('imgbb_theme') || 'dark';
+
+            concurrencyInput.value = savedConcurrency;
+            themeSelect.value = savedTheme;
+
+            // Save Handler
+            saveBtn.addEventListener('click', () => {
+                const newConcurrency = concurrencyInput.value;
+                const newTheme = themeSelect.value;
+
+                localStorage.setItem('imgbb_concurrency', newConcurrency);
+                localStorage.setItem('imgbb_theme', newTheme);
+
+                // Apply theme immediately
+                document.body.setAttribute('data-theme', newTheme);
+
+                // Show saved message
+                saveMsg.style.opacity = '1';
+                setTimeout(() => { saveMsg.style.opacity = '0'; }, 2000);
+            });
+
+            // Live theme preview
+            themeSelect.addEventListener('change', (e) => {
+                document.body.setAttribute('data-theme', e.target.value);
+            });
+        });
+    </script>
+</body>
+</html>

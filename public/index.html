@@ -7,18 +7,26 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="notification-area"></div>
+
     <div class="container">
         <div class="header">
             <h1>ImgBB Downloader</h1>
-            <a href="/history.html" class="history-btn">History</a>
+            <div class="nav-links">
+                <a href="/" class="nav-btn active">Downloader</a>
+                <a href="/history.html" class="nav-btn">History</a>
+                <a href="/settings.html" class="nav-btn">Settings</a>
+            </div>
         </div>
+
         <p>Enter one or more ImgBB URLs, separated by commas or new lines.</p>
-        <textarea id="urlInput" rows="10" placeholder="https://ibb.co/6GwJbJ8, https://ibb.co/VpPLBkJ..."></textarea>
-        <button id="downloadBtn">Start Download</button>
+        <textarea id="urlInput" rows="8" placeholder="https://ibb.co/6GwJbJ8&#10;https://ibb.co/VpPLBkJ..."></textarea>
+        
+        <button id="downloadBtn" class="primary-btn">Start Download</button>
         
         <h2>Progress Log</h2>
         <div id="progressLog" class="log-container">
-            <p>Waiting for tasks...</p>
+            <p style="color: var(--text-secondary); text-align: center; margin-top: 20px;">Waiting for tasks...</p>
         </div>
     </div>
 
